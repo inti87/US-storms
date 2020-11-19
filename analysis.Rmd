@@ -1,0 +1,110 @@
+---
+title: "USA extreme weather events exploration"
+author: "Marko"
+date: "11/19/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, fig.width = 12, fig.height = 8)
+```
+
+# Synopsis
+
+
+
+# Data Processing
+
+## Import raw data
+
+Firs we need to import some libraries to execute the analysis:
+```{r firststep, message=FALSE}
+rm(list = ls())
+graphics.off()
+
+# Load R packages
+packages <- c("dplyr",   # list of packages to load
+              "ggplot2",  
+              "lubridate", 
+              "stringr", 
+              "cowplot", 
+              "data.table",
+              "janitor",
+              "kableExtra") 
+
+package.check <- lapply( # load or install & load list of packages
+  packages,
+  FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  }
+) 
+rm(packages, package.check)
+
+```
+
+
+Raw data is downloaded here:
+```{r import, cache=TRUE}
+# Download raw csv file if necessary
+if(!file.exists("repdata_data_StormData.csv.bz2")){
+  download.file(url = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", 
+                destfile = "repdata_data_StormData.csv.bz2") 
+  }
+
+# Import file
+df.raw <- fread(input = "repdata_data_StormData.csv.bz2")
+```
+
+
+## Initial data inspection
+
+Dimension (number of observations & number of variables) of the dataset:
+```{r dim}
+dim(df.raw)
+```
+
+Structure of given data frame:
+```{r str}
+str(df.raw)
+```
+
+Sneak peak into first few rows of the data:
+```{r head}
+head(df.raw) %>% 
+  kbl() %>% 
+  kable_paper() %>%
+  scroll_box(width = "100%", height = "250px")
+```
+
+
+
+
+## Data wrangling
+
+We need to clean the initial data set a bit in order to answer our questions.
+
+First we will clean columns names and set proper variable types;
+
+```{r wrangling}
+# clean column names
+df.clean <- df.raw %>% 
+  clean_names  
+
+# column type conversion & create new columns
+df.clean <- df.clean %>% 
+  mutate(bgn_date = mdy_hms(bgn_date), # convert to date
+         bgn_datetime = paste0(as.character(bgn_date), " ",  # build date + time column
+                               str_sub(bgn_time, start = 1, end = 2), ":",
+                               str_sub(bgn_time, start = 3, end = 4)),
+         bgn_datetime = ymd_hm(bgn_datetime) # convert to date time object
+         )
+  
+  
+  
+```
+
+
+# Results
