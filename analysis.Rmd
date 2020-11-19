@@ -24,13 +24,16 @@ graphics.off()
 
 # Load R packages
 packages <- c("dplyr",   # list of packages to load
+              "tidyr",
               "ggplot2",  
               "lubridate", 
-              "stringr", 
+              "stringr",
+              "forcats",
               "cowplot", 
               "data.table",
               "janitor",
-              "kableExtra") 
+              "kableExtra",
+              "datasets") 
 
 package.check <- lapply( # load or install & load list of packages
   packages,
@@ -79,6 +82,44 @@ head(df.raw) %>%
   scroll_box(width = "100%", height = "250px")
 ```
 
+Check how many different states occur in the data set (we would like to focus only on existing US states):
+```{r USstates}
+df.raw %>% pull(STATE) %>% unique(.) %>% length(.)
+```
+We will need to keep only state names abbreviations that actually exists. Measurements with other state name abbr. will be removed from the data set. We would like to analyze data on the USA level.
+
+
+How many different event types are in the dataset:
+```{r eventtypes}
+df.raw %>% count(EVTYPE) %>% nrow()
+```
+There are a lot of different event types, so we will focus only on most extreme ones (ones that are most harmful for the people or ones that have the greatest economic consequences).
+
+
+What is the time span of data:
+```{r timespan}
+df.raw %>% 
+  summarise(`date min` = min(BGN_DATE),
+            `date max` = max(BGN_DATE))
+```
+
+Summary of variables (number of injuries and fatalities):
+```{r injuryfatality}
+df.raw %>% 
+  select(INJURIES, FATALITIES) %>% 
+  summary()
+```
+
+Summary of variables related to damage:
+```{r damage}
+df.raw %>% 
+  select(PROPDMG, CROPDMG, CROPDMGEXP) %>% 
+  summary()
+
+df.raw %>% count(PROPDMGEXP) %>% arrange(desc(n))
+
+df.raw %>% count(CROPDMGEXP) %>% arrange(desc(n))
+```
 
 
 
@@ -86,9 +127,9 @@ head(df.raw) %>%
 
 We need to clean the initial data set a bit in order to answer our questions.
 
-First we will clean columns names and set proper variable types;
+First we will clean columns names, set proper variable types, and create additional variables;
 
-```{r wrangling}
+```{r wrangling, cache=TRUE}
 # clean column names
 df.clean <- df.raw %>% 
   clean_names  
@@ -99,12 +140,201 @@ df.clean <- df.clean %>%
          bgn_datetime = paste0(as.character(bgn_date), " ",  # build date + time column
                                str_sub(bgn_time, start = 1, end = 2), ":",
                                str_sub(bgn_time, start = 3, end = 4)),
-         bgn_datetime = ymd_hm(bgn_datetime) # convert to date time object
-         )
+         bgn_datetime = ymd_hm(bgn_datetime), # convert to date time object
+         year = lubridate::year(bgn_date), # add year
+         # generate new variables
+         fatalities_and_injuries = fatalities + injuries, # count deaths and injuries together
+         propdmg_usd = case_when(propdmgexp == "K" ~ propdmg * 1000, # calculate actual property damage in USD
+                                 propdmgexp == "M" ~ propdmg * 1000000,
+                                 propdmgexp == "B" ~ propdmg * 1000000000,
+                                 T ~ propdmg),
+         cropdmg_usd = case_when(cropdmgexp == "K" ~ cropdmg * 1000, # calculate actual crop damage in USD
+                                 cropdmgexp == "M" ~ cropdmg * 1000000,
+                                 cropdmgexp == "B" ~ cropdmg * 1000000000,
+                                 T ~ cropdmg),
+         dmgtot_usd = propdmg_usd + cropdmg_usd) # total damage in USD (property + crop)
+```
+
+Keep only US state names abbr. that actually exists. We will use **datasets** package and function **state.abb** to get state names abbr. and will join main table with US abbr. names:
+
+```{r USstatenames}
+df.states <- data.frame(state = state.abb, # US state names 
+                        US_state_name = T) # flag for actual names  
+
+# Join tables
+df.clean <- df.clean %>% 
+  left_join(x = ., 
+            y = df.states,
+            by = c("state_2" = "state")) %>% 
+  mutate(US_state_name = replace_na(US_state_name, FALSE)) %>%  # NAs replace with FALSE
+  filter(US_state_name == T) # keep only actual US state names 
+
+```
+
+
+
+## Calculate summaries
+
+In order to find most devastating weather events in observed time period we will first calculate total of:
+
+* injuries and/or fatalities
+* damage done
+
+For the entire USA and complete time span. Based on this summary we will be able to find "Top Killers" and "Top Destroyers", that have caused most trouble for the USA in the past decades (we add rank based on number of fatalities and another rank for damage dome):
+
+```{r fulltotal}
+df.total <- df.clean %>% 
+  group_by(evtype) %>% # calculate total for each event
+  summarise(injuries = sum(injuries),
+            fatalities = sum(fatalities),
+            fatalities_and_injuries = sum(fatalities_and_injuries),
+            propdmg_usd = sum(propdmg_usd),
+            cropdmg_usd = sum(cropdmg_usd),
+            damage_total_usd = sum(dmgtot_usd)) %>% 
+  ungroup() %>% 
+  # add rank based on fatalities
+  arrange(desc(fatalities)) %>% 
+  mutate(fatality_rank = row_number()) %>% 
+  # add rank based on damage done
+  arrange(desc(damage_total_usd)) %>% 
+  mutate(damage_rank = row_number())
+
   
+```
+
+Now lets calculate totals for each weather event and year:
+```{r fullyeartotal}
+df.total.year <- df.clean %>% 
+  group_by(evtype, year) %>% # calculate total for each event and year
+  summarise(injuries = sum(injuries),
+            fatalities = sum(fatalities),
+            fatalities_and_injuries = sum(fatalities_and_injuries),
+            propdmg_usd = sum(propdmg_usd),
+            cropdmg_usd = sum(cropdmg_usd),
+            damage_total_usd = sum(dmgtot_usd)) %>% 
+  # bring ranks from previous total table
+  left_join(x = .,
+            y = df.total %>% select(evtype, fatality_rank, damage_rank),
+            by = "evtype")
+```
+
+
+Now lets re-formulate our total tables in order to show:
+
+* totals for weather event that is top ten killer or destroyer
+* events that are not among top ten are being under event called "OTHER" 
+
+Total table for "killers":
+```{r fulltotal_killers}
+df.total.killers <- df.total %>% 
+  mutate(evtype_ = case_when(fatality_rank <= 10 ~ evtype,  # recode event type
+                             T ~ "OTHER WEATHER EVENTS")) %>% 
+  group_by(evtype_) %>%  # calculate the totals
+  summarise(injuries = sum(injuries),
+            fatalities = sum(fatalities),
+            fatalities_and_injuries = sum(fatalities_and_injuries),
+            propdmg_usd = sum(propdmg_usd),
+            cropdmg_usd = sum(cropdmg_usd),
+            damage_total_usd = sum(damage_total_usd)) %>% 
+  # bring ranks
+  left_join(x = .,
+            y = df.total %>% select(evtype, fatality_rank),
+            by = c("evtype_" = "evtype")) %>% 
+  mutate(fatality_rank = replace_na(fatality_rank, 11)) %>%  # other weather events have rank 11
+  # calculate percentage for fatalities
+  mutate(`fatalities percentage` = fatalities / sum(fatalities) * 100)
   
+```
+
+Total table for "destroyers":
+```{r fulltotal_destroyers}
+df.total.destroyers <- df.total %>% 
+  mutate(evtype_ = case_when(damage_rank <= 10 ~ evtype,  # recode event type
+                             T ~ "OTHER WEATHER EVENTS")) %>% 
+  group_by(evtype_) %>%  # calculate the totals
+  summarise(injuries = sum(injuries),
+            fatalities = sum(fatalities),
+            fatalities_and_injuries = sum(fatalities_and_injuries),
+            propdmg_usd = sum(propdmg_usd),
+            cropdmg_usd = sum(cropdmg_usd),
+            damage_total_usd = sum(damage_total_usd)) %>% 
+  # bring ranks
+  left_join(x = .,
+            y = df.total %>% select(evtype, damage_rank),
+            by = c("evtype_" = "evtype")) %>% 
+  mutate(damage_rank = replace_na(damage_rank, 11)) %>%  # other weather events have rank 11
+  # calculate percentage for damage done (in USD)
+  mutate(`damage USD percentage` = damage_total_usd / sum(damage_total_usd) * 100)
+```
+
+
+Total year table for "killers":
+```{r fulltotalyear_killers}
+df.total.killers.year <- df.total.year %>% 
+  mutate(evtype_ = case_when(fatality_rank <= 10 ~ evtype,  # recode event type
+                             T ~ "OTHER WEATHER EVENTS")) %>% 
+  group_by(evtype_, year) %>%  # calculate the totals
+  summarise(injuries = sum(injuries),
+            fatalities = sum(fatalities),
+            fatalities_and_injuries = sum(fatalities_and_injuries),
+            propdmg_usd = sum(propdmg_usd),
+            cropdmg_usd = sum(cropdmg_usd),
+            damage_total_usd = sum(damage_total_usd)) %>% 
+  # bring ranks
+  left_join(x = .,
+            y = df.total %>% select(evtype, fatality_rank),
+            by = c("evtype_" = "evtype")) %>% 
+  mutate(fatality_rank = replace_na(fatality_rank, 11)) # other weather events have rank 11
   
 ```
 
 
+Total table for "destroyers":
+```{r fulltotalyear_destroyers}
+df.total.destroyers.year <- df.total.year %>% 
+  mutate(evtype_ = case_when(damage_rank <= 10 ~ evtype,  # recode event type
+                             T ~ "OTHER WEATHER EVENTS")) %>% 
+  group_by(evtype_, year) %>%  # calculate the totals
+  summarise(injuries = sum(injuries),
+            fatalities = sum(fatalities),
+            fatalities_and_injuries = sum(fatalities_and_injuries),
+            propdmg_usd = sum(propdmg_usd),
+            cropdmg_usd = sum(cropdmg_usd),
+            damage_total_usd = sum(damage_total_usd)) %>% 
+  # bring ranks
+  left_join(x = .,
+            y = df.total %>% select(evtype, damage_rank),
+            by = c("evtype_" = "evtype")) %>% 
+  mutate(damage_rank = replace_na(damage_rank, 11)) # other weather events have rank 11
+```
+
+
+
+
 # Results
+
+
+### Nature Top Killers
+
+```{r naturetopkillers}
+df.total.killers %>% 
+  select(evtype_, fatality_rank, injuries, fatalities) %>% 
+  rename(`Weather event` = evtype_) %>% 
+  arrange(fatality_rank) %>% 
+  mutate(`Weather event` = fct_inorder(`Weather event`)) %>% 
+  pivot_longer(cols = c("injuries", "fatalities"), names_to = "Harm type", values_to = "Number of people") %>% 
+  mutate(`Harm type` = factor(`Harm type`, levels = c("fatalities", "injuries"))) %>% 
+  ggplot(aes(x = `Weather event`, y = `Number of people`, fill = `Weather event`)) +
+  geom_col() +
+  facet_grid(`Harm type` ~ ., scales = "free") +
+  scale_fill_viridis_d(option = "A")
+  
+  
+  
+
+```
+
+
+### Nature Top Destroyers
+
+### Killers and Destroyers
