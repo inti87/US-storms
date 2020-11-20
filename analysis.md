@@ -34,7 +34,8 @@ packages <- c("dplyr",   # list of packages to load
               "data.table",
               "janitor",
               "kableExtra",
-              "datasets") 
+              "datasets",
+              "scales") 
 
 package.check <- lapply( # load or install & load list of packages
   packages,
@@ -614,23 +615,6 @@ df.total <- df.clean %>%
   mutate(damage_rank = row_number())
 ```
 
-Now lets calculate totals for each weather event and year:
-
-```r
-df.total.year <- df.clean %>% 
-  group_by(evtype, year) %>% # calculate total for each event and year
-  summarise(injuries = sum(injuries),
-            fatalities = sum(fatalities),
-            fatalities_and_injuries = sum(fatalities_and_injuries),
-            propdmg_usd = sum(propdmg_usd),
-            cropdmg_usd = sum(cropdmg_usd),
-            damage_total_usd = sum(dmgtot_usd)) %>% 
-  # bring ranks from previous total table
-  left_join(x = .,
-            y = df.total %>% select(evtype, fatality_rank, damage_rank),
-            by = "evtype")
-```
-
 
 Now lets re-formulate our total tables in order to show:
 
@@ -682,45 +666,56 @@ df.total.destroyers <- df.total %>%
 ```
 
 
-Total year table for "killers":
+## Data for the plots
+
+We will create data for first plot:
+
 
 ```r
-df.total.killers.year <- df.total.year %>% 
-  mutate(evtype_ = case_when(fatality_rank <= 10 ~ evtype,  # recode event type
-                             T ~ "OTHER WEATHER EVENTS")) %>% 
-  group_by(evtype_, year) %>%  # calculate the totals
-  summarise(injuries = sum(injuries),
-            fatalities = sum(fatalities),
-            fatalities_and_injuries = sum(fatalities_and_injuries),
-            propdmg_usd = sum(propdmg_usd),
-            cropdmg_usd = sum(cropdmg_usd),
-            damage_total_usd = sum(damage_total_usd)) %>% 
-  # bring ranks
-  left_join(x = .,
-            y = df.total %>% select(evtype, fatality_rank),
-            by = c("evtype_" = "evtype")) %>% 
-  mutate(fatality_rank = replace_na(fatality_rank, 11)) # other weather events have rank 11
+plot.killers.data <- df.total.killers %>% 
+  select(evtype_, fatality_rank, injuries, fatalities) %>% 
+  rename(`Weather event` = evtype_) %>% 
+  arrange(fatality_rank) %>% 
+  mutate(`Weather event` = fct_inorder(`Weather event`)) %>% 
+  pivot_longer(cols = c("injuries", "fatalities"), 
+               names_to = "Harm type", 
+               values_to = "Number of people") %>% 
+  mutate(`Harm type` = factor(`Harm type`, 
+                              levels = c("fatalities", "injuries"), 
+                              labels = c("killed", "injured"))) 
 ```
 
 
-Total table for "destroyers":
+Table for second plot:
 
 ```r
-df.total.destroyers.year <- df.total.year %>% 
-  mutate(evtype_ = case_when(damage_rank <= 10 ~ evtype,  # recode event type
-                             T ~ "OTHER WEATHER EVENTS")) %>% 
-  group_by(evtype_, year) %>%  # calculate the totals
-  summarise(injuries = sum(injuries),
-            fatalities = sum(fatalities),
-            fatalities_and_injuries = sum(fatalities_and_injuries),
-            propdmg_usd = sum(propdmg_usd),
-            cropdmg_usd = sum(cropdmg_usd),
-            damage_total_usd = sum(damage_total_usd)) %>% 
-  # bring ranks
-  left_join(x = .,
-            y = df.total %>% select(evtype, damage_rank),
-            by = c("evtype_" = "evtype")) %>% 
-  mutate(damage_rank = replace_na(damage_rank, 11)) # other weather events have rank 11
+plot.destroyers.data <- df.total.destroyers %>% 
+  select(evtype_, damage_rank, damage_total_usd) %>% 
+  rename(`Weather event` = evtype_) %>% 
+  arrange(damage_rank) %>% 
+  mutate(`Weather event` = fct_inorder(`Weather event`),
+         damage_total_usd_billions = damage_total_usd / 1000000000) # convert damage to billion USD
+```
+
+Table for third plot:
+
+
+```r
+plot.scatter <- df.total %>% 
+  # create new variable weather group event (keep event name if event is top killer or top destroyer)
+  mutate(`Weather event` = case_when(fatality_rank <= 5 | damage_rank <= 5 ~ evtype,
+                                     T ~ "OTHER WEATHER EVENTS"),
+         damage_total_usd_billions = damage_total_usd / 1000000000) %>%  # convert damage to billion USD
+  # Factor variable (fatality rank considered)
+  mutate(rank_ = case_when(`Weather event` == "OTHER WEATHER EVENTS" ~ df.total %>% pull(fatality_rank) %>% max(.),
+                          `Weather event` != "OTHER WEATHER EVENTS" ~ fatality_rank)) %>% 
+  arrange(rank_) %>% 
+  mutate(`Weather event` = fct_inorder(`Weather event`))
+
+colors.pal <- viridis_pal(option = "A")(plot.scatter %>% 
+                                          filter(`Weather event` != "OTHER WEATHER EVENTS") %>% 
+                                          nrow()) %>% 
+  c(., "gray")
 ```
 
 
@@ -733,45 +728,19 @@ df.total.destroyers.year <- df.total.year %>%
 
 
 ```r
-plot1.killers <- df.total.killers %>% 
-  select(evtype_, fatality_rank, fatalities) %>% 
-  rename(`Weather event` = evtype_) %>% 
-  arrange(fatality_rank) %>% 
-  mutate(`Weather event` = fct_inorder(`Weather event`)) %>% 
-  ggplot(aes(x = `Weather event`, y = fatalities, fill = `Weather event`)) +
+plot.killers.data %>%  
+  ggplot(aes(x = `Weather event`, y = `Number of people`, fill = `Weather event`)) +
   geom_col(color = "black") +
-  scale_y_continuous(breaks = seq(0,10000,500)) +
   scale_fill_viridis_d(option = "D") +
+  facet_grid(`Harm type` ~ ., scales = "free") +
   xlab("Type of weather event") +
-  ylab("Number of people killed") +
-  ggtitle("Top nature killers (Total fatalities count)") +
-  theme(axis.text.x = element_text(size = 12, angle = 30),
+  ylab("Number of people") +
+  ggtitle("Top nature killers (total fatalities & injuries count)") +
+  theme(axis.text.x = element_text(size = 12, angle = 20),
         axis.text.y = element_text(size = 14),
         axis.title = element_text(size = 16),
-        title = element_text(size = 20, face = "bold"))
-
-levels.killers <- df.total.killers %>% arrange(fatality_rank) %>% pull(evtype_)
-  
-plot2.killers <- df.total.killers.year %>% 
-  select(evtype_, fatality_rank, fatalities, year) %>% 
-  rename(`Weather event` = evtype_) %>% 
-  mutate(`Weather event` = factor(`Weather event`, levels = levels.killers)) %>% 
-  ggplot(aes(x = year, y = fatalities, fill = `Weather event`)) +
-  geom_area(color = "black") +
-  scale_y_continuous(breaks = seq(0,10000,250)) +
-  scale_x_continuous(breaks = seq(1950,2020,5)) +
-  scale_fill_viridis_d(option = "D") +
-  xlab("Year of occurence") +
-  ylab("Number of people killed") +
-  ggtitle("Top nature killers (Total fatalities count over the years)") +
-  theme(axis.text.x = element_text(size = 12, angle = 0),
-        axis.text.y = element_text(size = 14),
-        axis.title = element_text(size = 16),
-        title = element_text(size = 20, face = "bold"),
-        legend.position = "none")
-
-  
-plot_grid(plot1.killers, plot2.killers, ncol = 2)
+        strip.text = element_text(size = 18),
+        title = element_text(size = 18, face = "bold"))
 ```
 
 ![](analysis_files/figure-html/naturetopkillers-1.png)<!-- -->
@@ -779,4 +748,56 @@ plot_grid(plot1.killers, plot2.killers, ncol = 2)
 
 ### Nature Top Destroyers
 
-### Killers and Destroyers
+
+
+```r
+plot.destroyers.data %>%  
+  ggplot(aes(x = `Weather event`, y = damage_total_usd_billions, fill = `Weather event`)) +
+  geom_col(color = "black") +
+  scale_y_continuous(breaks = seq(0,1000,10)) +
+  scale_fill_viridis_d(option = "D") +
+  xlab("Type of weather event") +
+  ylab("Damage done in billions USD dollars") +
+  ggtitle("Top nature destroyers (total property & crop damage done)") +
+  theme(axis.text.x = element_text(size = 12, angle = 20),
+        axis.text.y = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        strip.text = element_text(size = 18),
+        title = element_text(size = 18, face = "bold"))
+```
+
+![](analysis_files/figure-html/naturetopdestroyers-1.png)<!-- -->
+
+### Nature malice
+
+
+
+```r
+plot.scatter %>% 
+  ggplot(aes(x = injuries + 1, 
+             y = fatalities + 1, 
+             size = damage_total_usd_billions, 
+             color = `Weather event`)) +
+  geom_point(alpha = 1/2) +
+  geom_text(data = plot.scatter %>% 
+              filter(`Weather event` != "OTHER WEATHER EVENTS"), 
+            aes(label = `Weather event`), size = 5, show.legend = F) +
+  scale_x_log10(limits = c(1,1e7)) +
+  scale_y_log10(limits = c(1,1.5e4)) +
+  scale_size(range = c(1, 80)) +
+  scale_color_manual(values = colors.pal) +
+  labs(x = "Number of people injured", 
+       y = "Number of people killed",
+       title = "Nature deadlies tools",
+       subtitle = "Point size ~ total damage done in USD") +
+  guides(size=F) +
+  theme(axis.text.x = element_text(size = 12, angle = 20),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16),
+        axis.text.y = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        plot.title = element_text(size = 18, face = "bold"))
+```
+
+![](analysis_files/figure-html/scatteplot-1.png)<!-- -->
+
