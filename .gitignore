@@ -4,3 +4,4 @@
 .Ruserdata
 repdata_data_StormData.csv.bz2
 analysis_cache/
+analysis_files/
