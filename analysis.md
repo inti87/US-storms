@@ -1,21 +1,35 @@
 ---
 title: "USA extreme weather events exploration"
-author: "Marko"
+author: "M.I."
 date: "11/19/2020"
 output: 
   html_document:
     keep_md: true
+    number_sections: yes
+    toc: yes
+    toc_float: yes
 ---
 
 
 
-# Synopsis
+## Synopsis
+
+In this report we would like to analyze **severe weather events** in the **USA** for the past decades. For data analysis we are using the **[NOAA](https://www.noaa.gov/) Storm Database** . With provided analysis we would like to provide answers for given questions below:
+
+1. Across the United States, which types of events are most harmful with respect to population health?
+2. Across the United States, which types of events have the greatest economic consequences?
+
+Main tools used for providing answers is **exploratory data analysis** (**EDA**). Main focus were variables indicating harm done to people (fatalities and injures) and damage done to property or crops. We have identified top 10 nature events that have the highest death rate (**Top nature killers**) in the USA. Also top 10 nature events, that caused the greatest economic consequences as for damage done (**Top nature destroyers**), were identified. 
+
+Data is provided for a time span between years 1950 and 2011 and data is gathered for each state and event. Therefore additional summaries were calculated in order to provide adequate insights.
 
 
 
-# Data Processing
+## Data Processing
 
-## Import raw data
+In this part we will describe all the transformations applied to raw data, including summaries calculated.
+
+### Import raw data
 
 Firs we need to import some libraries to execute the analysis:
 
@@ -64,7 +78,7 @@ df.raw <- fread(input = "repdata_data_StormData.csv.bz2")
 ```
 
 
-## Initial data inspection
+### Initial data inspection
 
 Dimension (number of observations & number of variables) of the dataset:
 
@@ -425,7 +439,7 @@ df.raw %>% pull(STATE) %>% unique(.) %>% length(.)
 We will need to keep only state names abbreviations that actually exists. Measurements with other state name abbr. will be removed from the data set. We would like to analyze data on the USA level.
 
 
-How many different event types are in the dataset:
+How many different event types are in the data set:
 
 ```r
 df.raw %>% count(EVTYPE) %>% nrow()
@@ -532,7 +546,7 @@ df.raw %>% count(CROPDMGEXP) %>% arrange(desc(n))
 
 
 
-## Data wrangling
+### Data wrangling
 
 We need to clean the initial data set a bit in order to answer our questions.
 
@@ -565,10 +579,6 @@ df.clean <- df.clean %>%
          dmgtot_usd = propdmg_usd + cropdmg_usd) # total damage in USD (property + crop)
 ```
 
-```
-## Warning: 5 failed to parse.
-```
-
 Keep only US state names abbr. that actually exists. We will use **datasets** package and function **state.abb** to get state names abbr. and will join main table with US abbr. names:
 
 
@@ -587,14 +597,14 @@ df.clean <- df.clean %>%
 
 
 
-## Calculate summaries
+### Calculate summaries
 
 In order to find most devastating weather events in observed time period we will first calculate total of:
 
 * injuries and/or fatalities
 * damage done
 
-For the entire USA and complete time span. Based on this summary we will be able to find "Top Killers" and "Top Destroyers", that have caused most trouble for the USA in the past decades (we add rank based on number of fatalities and another rank for damage dome):
+For the entire USA and complete time span. Based on this summary we will be able to find "Top Killers" and "Top Destroyers", that have caused most trouble for the USA in the past decades (we add rank based on number of fatalities and another rank for damage done):
 
 
 ```r
@@ -619,7 +629,7 @@ df.total <- df.clean %>%
 Now lets re-formulate our total tables in order to show:
 
 * totals for weather event that is top ten killer or destroyer
-* events that are not among top ten are being under event called "OTHER" 
+* events that are not among top ten are being under event called **"OTHER WEATHER EVENTS"**
 
 Total table for "killers":
 
@@ -666,7 +676,7 @@ df.total.destroyers <- df.total %>%
 ```
 
 
-## Data for the plots
+### Data for the plots
 
 We will create data for first plot:
 
@@ -686,7 +696,7 @@ plot.killers.data <- df.total.killers %>%
 ```
 
 
-Table for second plot:
+Data for second plot:
 
 ```r
 plot.destroyers.data <- df.total.destroyers %>% 
@@ -697,7 +707,7 @@ plot.destroyers.data <- df.total.destroyers %>%
          damage_total_usd_billions = damage_total_usd / 1000000000) # convert damage to billion USD
 ```
 
-Table for third plot:
+Data for third plot:
 
 
 ```r
@@ -721,10 +731,13 @@ colors.pal <- viridis_pal(option = "A")(plot.scatter %>%
 
 
 
-# Results
+## Results
 
+In this section the results are shown. First we will highlight top nature's killers, then we will show top nature destroyers and finally all events are drawn on a single scatter plot showing all relevant counts.
 
-### Nature Top Killers
+### Nature's Top Killers
+
+Figure below shows how many people were killed and injured by a given severe weather event (all years given - total count). In order to have a meaningful plot, we are showing top ten events and all other events are grouped in a single event called "OTHER WEATHER EVENTS" (Total number of different events is 952). We can see that the most deadliest weather event in the US history are tornadoes that have killed 5633 people and injured 91.346 thousands of people. Other devastating weather events are heat, floods, lightning, avalanches and others. Top ten weather events have killed 11.977 thousands people, which corresponds to 80.7% of all people, that were killed by a severe weather event.  
 
 
 ```r
@@ -746,7 +759,10 @@ plot.killers.data %>%
 ![](analysis_files/figure-html/naturetopkillers-1.png)<!-- -->
 
 
-### Nature Top Destroyers
+### Nature's Top Destroyers
+
+Figure below shows the total damage done (in USD dollars) to property or crops by a given severe weather event (all years given - total count). In order to have a meaningful plot, we are showing top ten events and all other events are grouped in a single event called "OTHER WEATHER EVENTS" (Total number of different events is 952). We can see that the most destructive weather event in the US history are floods that have done damage measured in 150.1452873 billions of USD dollars. Other top most destructive weather events are hurricanes, tornadoes, storms , drought, and so on. Top ten weather events have made a total damage of 404.7062859 billions of USD dollars, which corresponds to 85.7% of all damage done (measured in USD dollars), that were caused by a severe weather event.  
+
 
 
 
@@ -768,8 +784,15 @@ plot.destroyers.data %>%
 
 ![](analysis_files/figure-html/naturetopdestroyers-1.png)<!-- -->
 
-### Nature malice
+### Nature's deadliest tools
 
+On final the plot shown below we try to highlight 3 aspects of severe weather events:
+
+* total people injured (x-axis)
+* total people killed (y-axis)
+* total damage done in USD dollars (size of the points)
+
+In order to do so we have drawn a scatter plot, where each weather event is shown with a certain point. From top killers and top destroyers we have selected the top 5 most ranking events. These events have a unique color and unique name, all other events are colored with gray color and are grouped in a event called "OTHER WEATHER EVENTS". Interesting thing is the fact, when looking at the top 5 in both groups returns 9 different events. Meaning that rankings are different and if a certain event is a top killer does not mean it is also a top destroyer. In order to have a meaningful plot we had to apply logarithm with base 10 transformation on both axis.
 
 
 ```r
@@ -781,14 +804,14 @@ plot.scatter %>%
   geom_point(alpha = 1/2) +
   geom_text(data = plot.scatter %>% 
               filter(`Weather event` != "OTHER WEATHER EVENTS"), 
-            aes(label = `Weather event`), size = 5, show.legend = F) +
+            aes(label = `Weather event`), size = 7, show.legend = F) +
   scale_x_log10(limits = c(1,1e7)) +
   scale_y_log10(limits = c(1,1.5e4)) +
   scale_size(range = c(1, 80)) +
   scale_color_manual(values = colors.pal) +
-  labs(x = "Number of people injured", 
-       y = "Number of people killed",
-       title = "Nature deadlies tools",
+  labs(x = "Number of people injured (log 10 scale)", 
+       y = "Number of people killed (log 10 scale)",
+       title = "Deadliest nature weather events",
        subtitle = "Point size ~ total damage done in USD") +
   guides(size=F) +
   theme(axis.text.x = element_text(size = 12, angle = 20),
@@ -800,4 +823,3 @@ plot.scatter %>%
 ```
 
 ![](analysis_files/figure-html/scatteplot-1.png)<!-- -->
-
